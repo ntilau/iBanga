@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
+import android.app.AlertDialog
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -19,7 +20,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -45,9 +48,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressFiles: TextView
     private lateinit var currentFileLabel: TextView
     private lateinit var resultText: TextView
+    private lateinit var cancelBtn: Button
     private lateinit var scrollView: ScrollView
 
     private lateinit var passwordStore: PasswordStore
+
+    /** The running archive/extract job, so we can cancel it. */
+    private var currentJob: Job? = null
 
     // Track what the SAF pickers returned so we can derive a display path.
     private var currentSourcePickerUri: Uri? = null
@@ -133,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         progressFiles = findViewById(R.id.progress_files)
         currentFileLabel = findViewById(R.id.current_file)
+        cancelBtn = findViewById(R.id.cancel_btn)
         resultText = findViewById(R.id.result_text)
         scrollView = findViewById(R.id.scroll_view)
     }
@@ -150,6 +158,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         executeBtn.setOnClickListener { executeOperation() }
+
+        cancelBtn.setOnClickListener {
+            currentJob?.let { job ->
+                if (job.isActive) {
+                    AlertDialog.Builder(this)
+                        .setTitle(R.string.abort_title)
+                        .setMessage(R.string.abort_message)
+                        .setPositiveButton(R.string.abort_confirm) { _, _ ->
+                            job.cancel()
+                            cancelBtn.isEnabled = false
+                            cancelBtn.text = getString(R.string.cancelling)
+                        }
+                        .setNegativeButton(R.string.abort_keep_going, null)
+                        .show()
+                }
+            }
+        }
 
         modeGroup.setOnCheckedChangeListener { _, _ -> updateModeLabels() }
 
@@ -265,6 +290,9 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------
 
     private fun executeOperation() {
+        // Don't start a new operation while one is running.
+        if (currentJob?.isActive == true) return
+
         val sourcePath = sourcePathEdit.text.toString().trim()
         val destPath = destPathEdit.text.toString().trim()
         val password = passwordEdit.text?.toString().orEmpty()
@@ -336,7 +364,7 @@ class MainActivity : AppCompatActivity() {
         showProgress()
         resultText.visibility = View.GONE
 
-        lifecycleScope.launch {
+        currentJob = lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
                     val helper = ArchiveHelper()
@@ -368,6 +396,12 @@ class MainActivity : AppCompatActivity() {
                 val action = if (isArchive) "Archived" else "Extracted"
                 showResult("$action successfully! → $destPath", isError = false)
 
+            } catch (e: CancellationException) {
+                // User aborted — delete partial output.
+                if (isArchive) File(destPath).delete()
+                hideProgress()
+                showResult("Operation cancelled", isError = true)
+
             } catch (e: Exception) {
                 hideProgress()
                 val msg = when {
@@ -379,6 +413,8 @@ class MainActivity : AppCompatActivity() {
                         "Error: ${e.message ?: "Unknown error"}"
                 }
                 showResult(msg, isError = true)
+            } finally {
+                currentJob = null
             }
         }
     }

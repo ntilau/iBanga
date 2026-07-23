@@ -30,4 +30,12 @@
 
     <!-- Browse -->
     <string name="browse">Browse</string>
+
+    <!-- Cancel -->
+    <string name="cancel">Cancel</string>
+    <string name="cancelling">Cancelling…</string>
+    <string name="abort_title">Abort operation?</string>
+    <string name="abort_message">The partial archive will be incomplete and will be deleted. This cannot be undone.</string>
+    <string name="abort_confirm">Abort</string>
+    <string name="abort_keep_going">Keep going</string>
 </resources>

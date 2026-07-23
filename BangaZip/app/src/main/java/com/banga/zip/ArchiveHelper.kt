@@ -7,6 +7,7 @@ import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Creates and extracts 7z archives using Apache Commons Compress.
@@ -65,6 +66,9 @@ class ArchiveHelper {
             onProgress(processed, totalCount, sourceDir.name)
 
             for (file in allEntries) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw CancellationException("Archiving cancelled by user")
+                }
                 val relativePath = sourceDir.toURI().relativize(file.toURI()).path
                 val entryPath = "${sourceDir.name}/$relativePath"
 
@@ -76,6 +80,9 @@ class ArchiveHelper {
                         val buf = ByteArray(8192)
                         var len: Int
                         while (input.read(buf).also { len = it } >= 0) {
+                            if (Thread.currentThread().isInterrupted) {
+                                throw CancellationException("Archiving cancelled by user")
+                            }
                             out.write(buf, 0, len)
                         }
                     }
@@ -125,6 +132,9 @@ class ArchiveHelper {
         openArchive(archiveFile, pwd).use { sevenZFile ->
             var entry: SevenZArchiveEntry? = sevenZFile.nextEntry
             while (entry != null) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw CancellationException("Extraction cancelled by user")
+                }
                 val outputFile = File(destDir, entry.name)
 
                 if (entry.isDirectory) {
@@ -135,6 +145,9 @@ class ArchiveHelper {
                         val buf = ByteArray(8192)
                         var len: Int
                         while (sevenZFile.read(buf).also { len = it } >= 0) {
+                            if (Thread.currentThread().isInterrupted) {
+                                throw CancellationException("Extraction cancelled by user")
+                            }
                             out.write(buf, 0, len)
                         }
                     }
