@@ -87,10 +87,9 @@ class MainActivity : AppCompatActivity() {
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
             val raw = displayPathFromUri(it) ?: it.toString()
-            // In archive mode the destination is a file path with .7z extension.
-            destPathEdit.setText(
-                if (archiveRadio.isChecked) "$raw/${raw.substringAfterLast('/')}.7z" else raw
-            )
+            // Just show the picked folder — if it doesn't end in .7z we'll
+            // append the source folder name at execution time.
+            destPathEdit.setText(raw)
         }
     }
 
@@ -294,7 +293,7 @@ class MainActivity : AppCompatActivity() {
         if (currentJob?.isActive == true) return
 
         val sourcePath = sourcePathEdit.text.toString().trim()
-        val destPath = destPathEdit.text.toString().trim()
+        val destPathRaw = destPathEdit.text.toString().trim()
         val password = passwordEdit.text?.toString().orEmpty()
         val confirmPassword = confirmPasswordEdit.text?.toString().orEmpty()
 
@@ -304,10 +303,20 @@ class MainActivity : AppCompatActivity() {
             sourcePathEdit.requestFocus()
             return
         }
-        if (destPath.isEmpty()) {
+        if (destPathRaw.isEmpty()) {
             showResult("Please enter a destination path", isError = true)
             destPathEdit.requestFocus()
             return
+        }
+
+        // ---- Resolve destination ------------------------------------
+        // If the destination doesn't end with .7z, treat it as a directory
+        // and derive the filename from the source folder name.
+        val destPath = if (archiveRadio.isChecked && !destPathRaw.lowercase().endsWith(".7z")) {
+            val sourceName = File(sourcePath).name
+            "$destPathRaw/$sourceName.7z"
+        } else {
+            destPathRaw
         }
 
         val sourceFile = File(sourcePath)
@@ -324,11 +333,6 @@ class MainActivity : AppCompatActivity() {
                     showResult("Failed to delete existing destination: $destPath", isError = true)
                     return
                 }
-            }
-            // Suggest .7z extension if missing.
-            if (!destPath.lowercase().endsWith(".7z")) {
-                showResult("Destination should end with .7z", isError = true)
-                return
             }
         } else {
             if (!sourceFile.exists() || !sourceFile.isFile) {
