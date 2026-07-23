@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">iBanga</string>
+    <string name="app_title">🔒 iBanga</string>
+
+    <!-- Mode -->
+    <string name="archive">Archive</string>
+    <string name="extract">Extract</string>
+
+    <!-- Paths -->
+    <string name="source_folder">Source folder to archive</string>
+    <string name="source_archive">Source .7z archive to extract</string>
+    <string name="dest_archive">Destination .7z archive</string>
+    <string name="dest_folder">Destination output folder</string>
+
+    <!-- Security -->
+    <string name="security_section">SECURITY</string>
+    <string name="password_hint">Password (optional)</string>
+    <string name="confirm_password_hint">Confirm password</string>
+    <string name="remember_password">Remember password</string>
+
+    <!-- Action -->
+    <string name="execute">🚀 Execute</string>
+
+    <!-- Progress -->
+    <string name="processing_title">Processing…</string>
+    <string name="starting">Starting…</string>
+    <string name="progress_format">%1$d / %2$d (%3$d%%)</string>
+    <string name="processing">%1$d entries processed</string>
+
+    <!-- Browse -->
+    <string name="browse">Browse</string>
+</resources>
