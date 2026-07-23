@@ -122,7 +122,7 @@ class ArchiveHelper {
 
         // Second pass: actually extract.
         var processed = 0
-        SevenZFile(archiveFile, pwd).use { sevenZFile ->
+        openArchive(archiveFile, pwd).use { sevenZFile ->
             var entry: SevenZArchiveEntry? = sevenZFile.nextEntry
             while (entry != null) {
                 val outputFile = File(destDir, entry.name)
@@ -164,7 +164,7 @@ class ArchiveHelper {
     private fun countEntries(archiveFile: File, password: CharArray?): Int {
         return try {
             var count = 0
-            SevenZFile(archiveFile, password).use { z ->
+            openArchive(archiveFile, password).use { z ->
                 while (z.nextEntry != null) count++
             }
             count
@@ -172,5 +172,14 @@ class ArchiveHelper {
             // Fallback: unknown total → caller can show indeterminate progress.
             0
         }
+    }
+
+    /** Open a 7z file using the (non-deprecated) builder API. */
+    private fun openArchive(file: File, password: CharArray?): SevenZFile {
+        val builder = SevenZFile.builder().setFile(file)
+        if (password != null) {
+            builder.setPassword(password)
+        }
+        return builder.get()
     }
 }
