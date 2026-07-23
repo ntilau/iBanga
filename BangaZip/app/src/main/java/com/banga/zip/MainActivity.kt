@@ -93,6 +93,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** File-picker for Extract mode – lets the user pick a .7z file. */
+    private val sourceFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            // Try to derive a human-readable path; fall back to URI.
+            val path = resolveFilePath(it)
+            sourcePathEdit.setText(path ?: it.toString())
+        }
+    }
+
     private val manageStorageLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -150,7 +161,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupListeners() {
         sourceLayout.setEndIconOnClickListener {
-            sourcePickerLauncher.launch(null)
+            if (archiveRadio.isChecked) {
+                // Archive mode → pick a source folder.
+                sourcePickerLauncher.launch(null)
+            } else {
+                // Extract mode → pick a .7z file.
+                sourceFilePickerLauncher.launch(arrayOf("application/x-7z-compressed"))
+            }
         }
         destLayout.setEndIconOnClickListener {
             destPickerLauncher.launch(null)
@@ -225,22 +242,40 @@ class MainActivity : AppCompatActivity() {
     // SAF URI → human-readable path
     // ---------------------------------------------------------------
 
+    /** Convert a SAF tree URI (from folder picker) to a path. */
     private fun displayPathFromUri(uri: Uri): String? {
         if ("com.android.externalstorage.documents" !in (uri.authority.orEmpty())) {
             return null
         }
         return try {
             val docId = DocumentsContract.getTreeDocumentId(uri)
-            val parts = docId.split(":")
-            if (parts.size < 2) return docId
-            val storageType = parts[0]
-            val relPath = parts.drop(1).joinToString(":")
-            when (storageType) {
-                "primary" -> "${Environment.getExternalStorageDirectory()}/$relPath"
-                else -> "/storage/$storageType/$relPath"
-            }
+            partsToPath(docId)
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /** Convert a SAF single-document URI (from file picker) to a path. */
+    private fun resolveFilePath(uri: Uri): String? {
+        if ("com.android.externalstorage.documents" !in (uri.authority.orEmpty())) {
+            return null
+        }
+        return try {
+            val docId = DocumentsContract.getDocumentId(uri)
+            partsToPath(docId)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun partsToPath(docId: String): String? {
+        val parts = docId.split(":")
+        if (parts.size < 2) return docId
+        val storageType = parts[0]
+        val relPath = parts.drop(1).joinToString(":")
+        return when (storageType) {
+            "primary" -> "${Environment.getExternalStorageDirectory()}/$relPath"
+            else -> "/storage/$storageType/$relPath"
         }
     }
 
