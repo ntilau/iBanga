@@ -17,15 +17,12 @@ import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -54,8 +51,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var passwordStore: PasswordStore
 
-    /** The running archive/extract job, so we can cancel it. */
-    private var currentJob: Job? = null
+    /** Whether we have already shown the progress group for the current run. */
+    private var progressGroupShown = false
 
     // Track what the SAF pickers returned so we can derive a display path.
     private var currentSourcePickerUri: Uri? = null
@@ -112,6 +109,11 @@ class MainActivity : AppCompatActivity() {
         updateExecuteButtonState()
     }
 
+    /** Request POST_NOTIFICATIONS on Android 13+ so result notifications work. */
+    private val postNotifLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted or denied — we proceed either way */ }
+
     // ---------------------------------------------------------------
     // Lifecycle
     // ---------------------------------------------------------------
@@ -127,6 +129,16 @@ class MainActivity : AppCompatActivity() {
         loadSavedPassword()
         updateModeLabels()
         checkStoragePermission()
+        requestNotificationPermission()
+
+        // Observe the shared progress state reactively.
+        observeProgress()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // If the user tapped the notification to return, the result
+        // text will already be updated by the flow observation above.
     }
 
     // ---------------------------------------------------------------
@@ -177,20 +189,18 @@ class MainActivity : AppCompatActivity() {
         executeBtn.setOnClickListener { executeOperation() }
 
         cancelBtn.setOnClickListener {
-            currentJob?.let { job ->
-                if (job.isActive) {
-                    AlertDialog.Builder(this)
-                        .setTitle(R.string.abort_title)
-                        .setMessage(R.string.abort_message)
-                        .setPositiveButton(R.string.abort_confirm) { _, _ ->
-                            job.cancel()
-                            cancelBtn.isEnabled = false
-                            cancelBtn.text = getString(R.string.cancelling)
-                        }
-                        .setNegativeButton(R.string.abort_keep_going, null)
-                        .show()
+            // Confirm before cancelling.
+            AlertDialog.Builder(this)
+                .setTitle(R.string.abort_title)
+                .setMessage(R.string.abort_message)
+                .setPositiveButton(R.string.abort_confirm) { _, _ ->
+                    // Immediately reflect the cancelling state for responsiveness.
+                    cancelBtn.isEnabled = false
+                    cancelBtn.text = getString(R.string.cancelling)
+                    ArchiveService.cancel(this)
                 }
-            }
+                .setNegativeButton(R.string.abort_keep_going, null)
+                .show()
         }
 
         modeGroup.setOnCheckedChangeListener { _, _ -> updateModeLabels() }
@@ -223,6 +233,41 @@ class MainActivity : AppCompatActivity() {
         sourceLayout.hint = if (isArchive) getString(R.string.source_folder) else getString(R.string.source_archive)
         destLayout.hint = if (isArchive) getString(R.string.dest_archive) else getString(R.string.dest_folder)
         destPathEdit.setText("") // clear so user doesn't accidentally reuse
+    }
+
+    // ---------------------------------------------------------------
+    // Reactive progress observation
+    // ---------------------------------------------------------------
+
+    private fun observeProgress() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ArchiveProgress.state.collect { state ->
+                    when {
+                        state.isRunning -> {
+                            // First emission that enters the running state →
+                            // show the progress group and reset counters.
+                            if (!progressGroupShown) {
+                                progressGroupShown = true
+                                showProgress()
+                            }
+                            updateProgress(state.current, state.total, state.fileName)
+                            cancelBtn.isEnabled = !state.isCancelling
+                            cancelBtn.text = if (state.isCancelling) {
+                                getString(R.string.cancelling)
+                            } else {
+                                getString(R.string.cancel)
+                            }
+                        }
+                        state.result != null -> {
+                            progressGroupShown = false
+                            hideProgress()
+                            showResult(state.result, state.isError)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------
@@ -281,7 +326,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------------------------------------------------------
-    // Storage permission
+    // Permissions
     // ---------------------------------------------------------------
 
     private fun checkStoragePermission() {
@@ -316,6 +361,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this, Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                postNotifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     private fun updateExecuteButtonState() {
         // Button is always enabled; validation happens on click.
     }
@@ -326,7 +382,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun executeOperation() {
         // Don't start a new operation while one is running.
-        if (currentJob?.isActive == true) return
+        if (ArchiveProgress.state.value.isRunning) return
 
         val sourcePath = sourcePathEdit.text.toString().trim()
         val destPathRaw = destPathEdit.text.toString().trim()
@@ -397,68 +453,12 @@ class MainActivity : AppCompatActivity() {
             passwordStore.rememberPassword = false
         }
 
-        // ---- Execute -----------------------------------------------
+        // ---- Execute via foreground service -------------------------
         val isArchive = archiveRadio.isChecked
         val passwordArg = password.ifEmpty { null }
 
-        showProgress()
         resultText.visibility = View.GONE
-
-        currentJob = lifecycleScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val helper = ArchiveHelper()
-                    if (isArchive) {
-                        // Safety net: delete if file was recreated between validation and write.
-                        File(destPath).delete()
-                        helper.archiveFolder(
-                            sourceFolder = sourcePath,
-                            archivePath = destPath,
-                            password = passwordArg,
-                            onProgress = { cur, tot, name ->
-                                runOnUiThread { updateProgress(cur, tot, name) }
-                            },
-                            isActive = { isActive }
-                        )
-                    } else {
-                        helper.extractArchive(
-                            archivePath = sourcePath,
-                            destinationFolder = destPath,
-                            password = passwordArg,
-                            onProgress = { cur, tot, name ->
-                                runOnUiThread { updateProgress(cur, tot, name) }
-                            },
-                            isActive = { isActive }
-                        )
-                    }
-                }
-
-                // Success
-                hideProgress()
-                val action = if (isArchive) "Archived" else "Extracted"
-                showResult("$action successfully! → $destPath", isError = false)
-
-            } catch (e: CancellationException) {
-                // User aborted — delete partial output.
-                if (isArchive) File(destPath).delete()
-                hideProgress()
-                showResult("Operation cancelled", isError = true)
-
-            } catch (e: Exception) {
-                hideProgress()
-                val msg = when {
-                    e.message?.contains("password", ignoreCase = true) == true ->
-                        "Wrong password or corrupted archive"
-                    e is IllegalArgumentException ->
-                        e.message ?: "Invalid input"
-                    else ->
-                        "Error: ${e.message ?: "Unknown error"}"
-                }
-                showResult(msg, isError = true)
-            } finally {
-                currentJob = null
-            }
-        }
+        ArchiveService.start(this, sourcePath, destPath, passwordArg, isArchive)
     }
 
     // ---------------------------------------------------------------

@@ -28,6 +28,10 @@
     <string name="progress_format">%1$d / %2$d (%3$d%%)</string>
     <string name="processing">%1$d entries processed</string>
 
+    <!-- Notifications (foreground service) -->
+    <string name="notif_channel_name">Archive progress</string>
+    <string name="notif_channel_desc">Shows progress of archive and extract operations running in the background</string>
+
     <!-- Browse -->
     <string name="browse">Browse</string>
 
