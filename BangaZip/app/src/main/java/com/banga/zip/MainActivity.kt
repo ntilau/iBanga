@@ -291,8 +291,11 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             if (destFile.exists()) {
-                showResult("Destination already exists. Remove it first or pick a new name.", isError = true)
-                return
+                // Overwrite: delete the existing file before proceeding.
+                if (!destFile.delete()) {
+                    showResult("Failed to delete existing destination: $destPath", isError = true)
+                    return
+                }
             }
             // Suggest .7z extension if missing.
             if (!destPath.lowercase().endsWith(".7z")) {
@@ -338,6 +341,8 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) {
                     val helper = ArchiveHelper()
                     if (isArchive) {
+                        // Safety net: delete if file was recreated between validation and write.
+                        File(destPath).delete()
                         helper.archiveFolder(
                             sourceFolder = sourcePath,
                             archivePath = destPath,
