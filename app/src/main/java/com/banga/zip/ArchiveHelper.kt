@@ -32,7 +32,8 @@ class ArchiveHelper {
         sourceFolder: String,
         archivePath: String,
         password: String? = null,
-        onProgress: (current: Int, total: Int, fileName: String) -> Unit = { _, _, _ -> }
+        onProgress: (current: Int, total: Int, fileName: String) -> Unit = { _, _, _ -> },
+        isActive: () -> Boolean = { true }
     ) {
         val sourceDir = File(sourceFolder)
         require(sourceDir.exists() && sourceDir.isDirectory) {
@@ -66,9 +67,7 @@ class ArchiveHelper {
             onProgress(processed, totalCount, sourceDir.name)
 
             for (file in allEntries) {
-                if (Thread.currentThread().isInterrupted) {
-                    throw CancellationException("Archiving cancelled by user")
-                }
+                if (!isActive()) throw CancellationException("Archiving cancelled by user")
                 val relativePath = sourceDir.toURI().relativize(file.toURI()).path
                 val entryPath = "${sourceDir.name}/$relativePath"
 
@@ -80,9 +79,7 @@ class ArchiveHelper {
                         val buf = ByteArray(8192)
                         var len: Int
                         while (input.read(buf).also { len = it } >= 0) {
-                            if (Thread.currentThread().isInterrupted) {
-                                throw CancellationException("Archiving cancelled by user")
-                            }
+                            if (!isActive()) throw CancellationException("Archiving cancelled by user")
                             out.write(buf, 0, len)
                         }
                     }
@@ -111,7 +108,8 @@ class ArchiveHelper {
         archivePath: String,
         destinationFolder: String,
         password: String? = null,
-        onProgress: (current: Int, total: Int, fileName: String) -> Unit = { _, _, _ -> }
+        onProgress: (current: Int, total: Int, fileName: String) -> Unit = { _, _, _ -> },
+        isActive: () -> Boolean = { true }
     ) {
         val archiveFile = File(archivePath)
         require(archiveFile.exists()) {
@@ -132,9 +130,7 @@ class ArchiveHelper {
         openArchive(archiveFile, pwd).use { sevenZFile ->
             var entry: SevenZArchiveEntry? = sevenZFile.nextEntry
             while (entry != null) {
-                if (Thread.currentThread().isInterrupted) {
-                    throw CancellationException("Extraction cancelled by user")
-                }
+                if (!isActive()) throw CancellationException("Extraction cancelled by user")
                 val outputFile = File(destDir, entry.name)
 
                 if (entry.isDirectory) {
@@ -145,9 +141,7 @@ class ArchiveHelper {
                         val buf = ByteArray(8192)
                         var len: Int
                         while (sevenZFile.read(buf).also { len = it } >= 0) {
-                            if (Thread.currentThread().isInterrupted) {
-                                throw CancellationException("Extraction cancelled by user")
-                            }
+                            if (!isActive()) throw CancellationException("Extraction cancelled by user")
                             out.write(buf, 0, len)
                         }
                     }

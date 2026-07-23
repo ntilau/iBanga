@@ -416,7 +416,8 @@ class MainActivity : AppCompatActivity() {
                             password = passwordArg,
                             onProgress = { cur, tot, name ->
                                 runOnUiThread { updateProgress(cur, tot, name) }
-                            }
+                            },
+                            isActive = { isActive }
                         )
                     } else {
                         helper.extractArchive(
@@ -425,7 +426,8 @@ class MainActivity : AppCompatActivity() {
                             password = passwordArg,
                             onProgress = { cur, tot, name ->
                                 runOnUiThread { updateProgress(cur, tot, name) }
-                            }
+                            },
+                            isActive = { isActive }
                         )
                     }
                 }
