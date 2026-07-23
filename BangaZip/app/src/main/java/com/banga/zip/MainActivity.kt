@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -150,6 +152,28 @@ class MainActivity : AppCompatActivity() {
         executeBtn.setOnClickListener { executeOperation() }
 
         modeGroup.setOnCheckedChangeListener { _, _ -> updateModeLabels() }
+
+        // Auto-fill destination with <source_folder_name>.7z in archive mode.
+        sourcePathEdit.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                if (!archiveRadio.isChecked) return
+                val source = s?.toString()?.trim() ?: return
+                if (source.isEmpty()) return
+                // Only auto-fill if destination is currently empty.
+                if (!destPathEdit.text.isNullOrEmpty()) return
+                val srcFile = File(source)
+                val name = srcFile.name
+                val parent = srcFile.parent ?: return
+                destPathEdit.setText("$parent/$name.7z")
+            }
+            override fun beforeTextChanged(
+                s: CharSequence?, start: Int, count: Int, after: Int
+            ) { /* no-op */ }
+
+            override fun onTextChanged(
+                s: CharSequence?, start: Int, before: Int, count: Int
+            ) { /* no-op */ }
+        })
     }
 
     private fun updateModeLabels() {
